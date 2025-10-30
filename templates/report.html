@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Laravel Recon Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f4; }
+    .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h1 { color: #2c3e50; }
+    .badge { padding: 4px 8px; border-radius: 4px; color: white; font-weight: bold; }
+    .critical { background: #e74c3c; }
+    .high { background: #e67e22; }
+    .medium { background: #f1c40f; }
+    .low { background: #3498db; }
+    .info { background: #2ecc71; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    th { background: #f2f2f2; }
+    pre { background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Laravel Passive Recon Report</h1>
+    <p><strong>Target:</strong> {{ results.target }} (<em>{{ results.mode|capitalize }}</em>)</p>
+    <p><strong>Time:</strong> {{ timestamp }}</p>
+    <p><strong>Findings:</strong> {{ total_findings }} | <span class="badge critical">Critical: {{ critical }}</span></p>
+
+    {% for f in results.findings %}
+    <div style="margin: 20px 0; padding: 15px; border-left: 5px solid #{{ 'e74c3c' if f.severity == 'CRITICAL' else 'e67e22' if f.severity == 'HIGH' else 'f1c40f' if f.severity == 'MEDIUM' else '3498db' }}; background: #f9f9f9;">
+      <h3>[{{ f.severity }}] {{ f.title }}</h3>
+      <p>{{ f.description }}</p>
+      {% if f.details %}
+      <pre>{{ f.details|pprint }}</pre>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

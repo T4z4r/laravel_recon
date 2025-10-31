@@ -14,6 +14,7 @@ import json
 import argparse
 import logging
 import hashlib
+import threading
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
@@ -22,6 +23,11 @@ import requests
 from colorama import init, Fore, Style
 import git
 from jinja2 import Environment, FileSystemLoader
+try:
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox, scrolledtext
+except ImportError:
+    tk = None
 
 # Initialize colorama
 init(autoreset=True)
@@ -345,11 +351,318 @@ class LaravelRecon:
             f.write(template)
 
 # =========================
+# GUI
+# =========================
+class LaravelReconGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Laravel Recon Tool")
+        self.root.geometry("800x600")
+
+        # Variables
+        self.target_var = tk.StringVar()
+        self.mode_var = tk.StringVar(value="online")
+        self.timeout_var = tk.IntVar(value=10)
+        self.output_dir_var = tk.StringVar(value="reports")
+        self.dark_mode = tk.BooleanVar(value=False)
+        self.recon = None
+        self.results_text = None
+
+        # Set app icon
+        try:
+            self.root.iconbitmap("icon.ico")
+        except:
+            pass  # Icon not found, continue without it
+
+        self.create_styles()
+        self.create_widgets()
+        self.apply_theme()
+
+        # Bind dark mode toggle
+        self.dark_mode.trace_add("write", lambda *args: self.apply_theme())
+
+    def create_styles(self):
+        self.style = ttk.Style()
+        # Light theme (default) - Blue neon accents
+        self.style.configure("TFrame", background="#f0f0f0")
+        self.style.configure("TLabel", background="#f0f0f0", foreground="#000000")
+        self.style.configure("TButton", background="#e0e0e0", foreground="#000000")
+        self.style.configure("TRadiobutton", background="#f0f0f0", foreground="#000000")
+        self.style.configure("TEntry", fieldbackground="#ffffff", foreground="#000000")
+        self.style.configure("TSpinbox", fieldbackground="#ffffff", foreground="#000000")
+
+        # Dark theme - Blue neon
+        self.style.configure("Dark.TFrame", background="#0a0a0a")
+        self.style.configure("Dark.TLabel", background="#0a0a0a", foreground="#00ffff")
+        self.style.configure("Dark.TButton", background="#1a1a1a", foreground="#00ffff", bordercolor="#00ffff")
+        self.style.configure("Dark.TRadiobutton", background="#0a0a0a", foreground="#00ffff")
+        self.style.configure("Dark.TEntry", fieldbackground="#1a1a1a", foreground="#00ffff", bordercolor="#00ffff")
+        self.style.configure("Dark.TSpinbox", fieldbackground="#1a1a1a", foreground="#00ffff", bordercolor="#00ffff")
+        self.style.configure("Dark.TCheckbutton", background="#0a0a0a", foreground="#00ffff")
+
+        # Custom styles for neon effects
+        self.style.map("Dark.TButton",
+            background=[("active", "#003d4d")],
+            foreground=[("active", "#ffffff")])
+        self.style.map("Dark.TEntry",
+            fieldbackground=[("focus", "#003d4d")])
+        self.style.map("Dark.TSpinbox",
+            fieldbackground=[("focus", "#003d4d")])
+
+    def create_widgets(self):
+        # Main frame
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # Logo/Title frame
+        logo_frame = ttk.Frame(main_frame)
+        logo_frame.grid(row=0, column=0, columnspan=4, pady=(0, 10))
+
+        # Metasploit-like logo text
+        logo_label = tk.Label(logo_frame, text="LARAVEL RECON", font=("Courier", 16, "bold"), fg="#00ffff", bg="#0a0a0a")
+        logo_label.pack()
+
+        # Subtitle
+        subtitle_label = tk.Label(logo_frame, text="Passive Reconnaissance Tool", font=("Courier", 8), fg="#00ffff", bg="#0a0a0a")
+        subtitle_label.pack()
+
+        # Dark mode toggle
+        ttk.Checkbutton(main_frame, text="Dark Mode", variable=self.dark_mode).grid(row=1, column=3, sticky=tk.E, pady=5)
+
+        # Target input
+        ttk.Label(main_frame, text="Target:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        target_entry = ttk.Entry(main_frame, textvariable=self.target_var, width=50)
+        target_entry.grid(row=2, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+
+        # Mode selection
+        ttk.Label(main_frame, text="Mode:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        mode_frame = ttk.Frame(main_frame)
+        mode_frame.grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        ttk.Radiobutton(mode_frame, text="Online (URL)", variable=self.mode_var, value="online").pack(side=tk.LEFT)
+        ttk.Radiobutton(mode_frame, text="Offline (Path)", variable=self.mode_var, value="offline").pack(side=tk.LEFT)
+
+        # Timeout
+        ttk.Label(main_frame, text="Timeout (s):").grid(row=4, column=0, sticky=tk.W, pady=5)
+        ttk.Spinbox(main_frame, from_=1, to=60, textvariable=self.timeout_var, width=10).grid(row=4, column=1, sticky=tk.W, pady=5)
+
+        # Output directory
+        ttk.Label(main_frame, text="Output Dir:").grid(row=5, column=0, sticky=tk.W, pady=5)
+        output_entry = ttk.Entry(main_frame, textvariable=self.output_dir_var, width=40)
+        output_entry.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=5)
+        ttk.Button(main_frame, text="Browse", command=self.browse_output_dir).grid(row=5, column=2, pady=5)
+
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=6, column=0, columnspan=4, pady=10)
+        ttk.Button(button_frame, text="Start Recon", command=self.start_recon).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Save JSON", command=self.save_json).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Save HTML", command=self.save_html).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Clear", command=self.clear_results).pack(side=tk.LEFT, padx=5)
+
+        # Results area
+        ttk.Label(main_frame, text="Results:").grid(row=7, column=0, sticky=tk.W, pady=5)
+        self.results_text = scrolledtext.ScrolledText(main_frame, height=20, wrap=tk.WORD)
+        self.results_text.grid(row=8, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+
+        # Configure grid weights
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(8, weight=1)
+
+        # Store references for theme switching
+        self.main_frame = main_frame
+        self.target_entry = target_entry
+        self.output_entry = output_entry
+        self.mode_frame = mode_frame
+        self.button_frame = button_frame
+        self.logo_frame = logo_frame
+        self.logo_label = logo_label
+        self.subtitle_label = subtitle_label
+
+    def apply_theme(self):
+        if self.dark_mode.get():
+            # Apply dark blue neon theme
+            self.root.configure(bg="#0a0a0a")
+            self.main_frame.configure(style="Dark.TFrame")
+            self.target_entry.configure(style="Dark.TEntry")
+            self.output_entry.configure(style="Dark.TEntry")
+
+            # Update logo colors
+            self.logo_label.configure(fg="#00ffff", bg="#0a0a0a")
+            self.subtitle_label.configure(fg="#00ffff", bg="#0a0a0a")
+
+            # Update all labels
+            for child in self.main_frame.winfo_children():
+                if isinstance(child, ttk.Label):
+                    child.configure(style="Dark.TLabel")
+                elif isinstance(child, ttk.Button):
+                    child.configure(style="Dark.TButton")
+                elif isinstance(child, ttk.Checkbutton):
+                    child.configure(style="Dark.TCheckbutton")
+                elif isinstance(child, ttk.Frame):
+                    for subchild in child.winfo_children():
+                        if isinstance(subchild, ttk.Radiobutton):
+                            subchild.configure(style="Dark.TRadiobutton")
+
+            # Update results text area with neon blue
+            self.results_text.configure(bg="#0a0a0a", fg="#00ffff", insertbackground="#00ffff")
+        else:
+            # Apply light theme
+            self.root.configure(bg="#f0f0f0")
+            self.main_frame.configure(style="TFrame")
+            self.target_entry.configure(style="TEntry")
+            self.output_entry.configure(style="TEntry")
+
+            # Update logo colors for light theme
+            self.logo_label.configure(fg="#000000", bg="#f0f0f0")
+            self.subtitle_label.configure(fg="#666666", bg="#f0f0f0")
+
+            # Update all labels
+            for child in self.main_frame.winfo_children():
+                if isinstance(child, ttk.Label):
+                    child.configure(style="TLabel")
+                elif isinstance(child, ttk.Button):
+                    child.configure(style="TButton")
+                elif isinstance(child, ttk.Checkbutton):
+                    child.configure(style="TCheckbutton")
+                elif isinstance(child, ttk.Frame):
+                    for subchild in child.winfo_children():
+                        if isinstance(subchild, ttk.Radiobutton):
+                            subchild.configure(style="TRadiobutton")
+
+            # Update results text area
+            self.results_text.configure(bg="#ffffff", fg="#000000", insertbackground="#000000")
+
+    def browse_output_dir(self):
+        dir_path = filedialog.askdirectory()
+        if dir_path:
+            self.output_dir_var.set(dir_path)
+
+    def start_recon(self):
+        target = self.target_var.get().strip()
+        if not target:
+            messagebox.showerror("Error", "Please enter a target URL or path")
+            return
+
+        self.results_text.delete(1.0, tk.END)
+        self.results_text.insert(tk.END, "Starting reconnaissance...\n")
+
+        # Disable button
+        self.root.config(cursor="wait")
+        self.root.update()
+
+        # Run in thread to avoid freezing GUI
+        thread = threading.Thread(target=self.run_recon, args=(target,))
+        thread.start()
+
+    def run_recon(self, target):
+        try:
+            self.recon = LaravelRecon(
+                target=target,
+                offline=self.mode_var.get() == "offline",
+                timeout=self.timeout_var.get(),
+                output_dir=self.output_dir_var.get()
+            )
+
+            if self.mode_var.get() == "online":
+                self.recon.check_online()
+            else:
+                self.recon.check_offline()
+
+            # Display results
+            self.display_results()
+
+        except Exception as e:
+            self.results_text.insert(tk.END, f"Error: {str(e)}\n")
+        finally:
+            self.root.config(cursor="")
+            self.root.update()
+
+    def display_results(self):
+        if not self.recon:
+            return
+
+        self.results_text.insert(tk.END, f"\nTarget: {self.recon.target}\n")
+        self.results_text.insert(tk.END, f"Mode: {self.recon.results['mode']}\n")
+        self.results_text.insert(tk.END, f"Laravel Detected: {self.recon.results['laravel_detected']}\n")
+        self.results_text.insert(tk.END, f"Total Findings: {len(self.recon.results['findings'])}\n\n")
+
+        for finding in self.recon.results["findings"]:
+            self.results_text.insert(tk.END, f"[{finding['severity']}] {finding['title']}\n")
+            self.results_text.insert(tk.END, f"{finding['description']}\n")
+            if finding['details']:
+                self.results_text.insert(tk.END, f"Details: {finding['details']}\n")
+            self.results_text.insert(tk.END, "\n")
+
+    def save_json(self):
+        if not self.recon:
+            messagebox.showwarning("Warning", "No results to save. Run reconnaissance first.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if file_path:
+            try:
+                with open(file_path, "w") as f:
+                    json.dump(self.recon.results, f, indent=2)
+                messagebox.showinfo("Success", f"JSON report saved to {file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save JSON: {str(e)}")
+
+    def save_html(self):
+        if not self.recon:
+            messagebox.showwarning("Warning", "No results to save. Run reconnaissance first.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".html",
+            filetypes=[("HTML files", "*.html"), ("All files", "*.*")]
+        )
+        if file_path:
+            try:
+                env = Environment(loader=FileSystemLoader('.'))
+                try:
+                    template = env.get_template("templates/report.html")
+                except:
+                    self.recon.create_html_template()
+                    template = env.get_template("templates/report.html")
+
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+                html = template.render(
+                    results=self.recon.results,
+                    timestamp=timestamp,
+                    total_findings=len(self.recon.results["findings"]),
+                    critical=len([f for f in self.recon.results["findings"] if f["severity"] == "CRITICAL"])
+                )
+                with open(file_path, "w") as f:
+                    f.write(html)
+                messagebox.showinfo("Success", f"HTML report saved to {file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save HTML: {str(e)}")
+
+    def clear_results(self):
+        self.results_text.delete(1.0, tk.END)
+        self.recon = None
+
+def launch_gui():
+    if tk is None:
+        print("tkinter not available. Install tkinter to use GUI.")
+        return
+
+    root = tk.Tk()
+    LaravelReconGUI(root)
+    root.mainloop()
+
+# =========================
 # MAIN
 # =========================
 def main():
     parser = argparse.ArgumentParser(description="Laravel Passive Recon Tool - Full Edition")
-    group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('--gui', action='store_true', help='Launch GUI mode')
+    group = parser.add_mutually_exclusive_group()
     group.add_argument('-u', '--url', help='Target URL (e.g. https://example.com)')
     group.add_argument('-p', '--path', help='Local Laravel project path')
     parser.add_argument('-t', '--timeout', type=int, default=10, help='Request timeout')
@@ -357,6 +670,10 @@ def main():
     parser.add_argument('--html', action='store_true', help='Save HTML report')
     parser.add_argument('-o', '--output', default='reports', help='Output directory')
     args = parser.parse_args()
+
+    if args.gui:
+        launch_gui()
+        return
 
     recon = LaravelRecon(
         target=args.url or args.path,

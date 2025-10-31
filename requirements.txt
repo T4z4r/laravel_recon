@@ -2,3 +2,4 @@ requests>=2.28.0
 colorama>=0.4.6
 GitPython>=3.1.0
 Jinja2>=3.1.0
+tkinter>=8.6

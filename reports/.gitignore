@@ -1,0 +1,9 @@
+# Laravel Reconnaissance Tool Reports
+# This folder contains generated reports and should not be committed to version control
+
+# All report files
+*.json
+*.html
+
+# Keep this .gitignore file
+!.gitignore
